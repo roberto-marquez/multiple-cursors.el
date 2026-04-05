@@ -313,6 +313,7 @@ cursor with updated info."
     (mc/for-each-fake-cursor
      (save-excursion
        (mc/execute-command-for-fake-cursor cmd cursor)))))
+  (unless mc--kill-or-copy-ran (if (mc--kill-or-copy-command-p cmd) (setq mc--kill-or-copy-ran t)))
   (mc--reset-read-prompts))
 
 (defun mc/execute-command-for-all-cursors (cmd)
@@ -778,6 +779,8 @@ They are temporarily disabled when multiple-cursors are active.")
   :keymap mc/keymap
   (if multiple-cursors-mode
       (progn
+	;; clear kill ran flag
+	(setq mc--kill-or-copy-ran nil)
         (mc/temporarily-disable-unsupported-minor-modes)
         (add-hook 'pre-command-hook #'mc/make-a-note-of-the-command-being-run nil t)
         (add-hook 'post-command-hook #'mc/execute-this-command-for-all-cursors t t)
@@ -786,6 +789,8 @@ They are temporarily disabled when multiple-cursors are active.")
     (remove-hook 'pre-command-hook #'mc/make-a-note-of-the-command-being-run t)
     (setq mc--this-command nil)
     (mc--maybe-set-killed-rectangle)
+    ;; concatenate kill rings and store result in main kill ring if a kill command ran.
+    (if mc--kill-or-copy-ran (mc--store-concant-of-kill-ring-entries-in-kill-ring))
     (mc/remove-fake-cursors)
     (mc/enable-temporarily-disabled-minor-modes)
     (run-hooks 'multiple-cursors-mode-disabled-hook)))
@@ -901,6 +906,25 @@ for running commands with multiple cursors."
     (mc/dump-list 'mc/cmds-to-run-for-all)
     (newline)
     (mc/dump-list 'mc/cmds-to-run-once)))
+
+;; Update behaviour to concatenate kills after exiting the mode.
+(defvar-local mc--kill-or-copy-ran nil
+  "Non-nil if at least one kill/copy command ran while multiple-cursors-mode was active.")
+
+(defun mc--kill-or-copy-command-p (cmd)
+  "Checks if the command was a kill command."
+  (memq cmd '(kill-ring-save kill-region
+              kill-word kill-line kill-whole-line
+              backward-kill-word)))
+
+(defun mc--joined-kill-ring-entries ()
+  "Return the latest kill-ring entry for each cursor, joined by newlines."
+  (mapconcat #'identity (mc--kill-ring-entries) "\n"))
+
+(defun mc--store-concant-of-kill-ring-entries-in-kill-ring ()
+  "Stores the concatenation of all cursors kill ring entries into the main kill ring."
+  (let ((text (mc--joined-kill-ring-entries)))
+      (kill-new text)))
 
 (provide 'multiple-cursors-core)
 (require 'mc-cycle-cursors)
